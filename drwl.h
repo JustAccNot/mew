@@ -231,8 +231,6 @@ drwl_text(Drwl *drwl,
 		fcft_subpixel_mode = FCFT_SUBPIXEL_NONE;
 
 	// U+2026 == …
-	if (render)
-		eg = fcft_rasterize_char_utf32(drwl->font, 0x2026, fcft_subpixel_mode);
 
 	for (const char *p = text, *pp; pp = p, *p; p++) {
 		for (state = UTF8_ACCEPT; *p && utf8decode(&state, &cp, *p) > UTF8_REJECT; p++);
@@ -241,6 +239,8 @@ drwl_text(Drwl *drwl,
 			if (p > pp)
 				p--;
 		}
+		if (render)
+			eg = fcft_rasterize_char_utf32(drwl->font, 0x2026, fcft_subpixel_mode);
 
 		glyph = fcft_rasterize_char_utf32(drwl->font, cp, fcft_subpixel_mode);
 		if (!glyph)
