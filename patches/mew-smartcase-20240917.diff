@@ -1,0 +1,58 @@
+From c0a73e2e0f36e3132f522aca29a4616ca2d905be Mon Sep 17 00:00:00 2001
+From: Rentib <sbitner420@tutanota.com>
+Date: Tue, 17 Sep 2024 22:55:11 +0200
+Subject: [PATCH] Add an option which enables smart case matching
+
+Case insensitive unless the search pattern contains upper case
+characters.
+---
+ mew.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/mew.c b/mew.c
+index a47696c..9fcaba6 100644
+--- a/mew.c
++++ b/mew.c
+@@ -261,6 +261,20 @@ cistrstr(const char *h, const char *n)
+ 	return NULL;
+ }
+ 
++static char *
++scstrstr(const char *h, const char *n)
++{
++   const char *p;
++
++   for (p = n; *p; p++) {
++       if ('A' <= *p && *p <= 'Z')
++           return strstr(h, n);
++   }
++
++   return cistrstr(h, n);
++}
++
++
+ static int
+ drawitem(struct item *item, int x, int y, int w)
+ {
+@@ -997,7 +1011,7 @@ setup(void)
+ static void
+ usage(void)
+ {
+-	die("usage: mew [-beiv] [-l lines] [-p prompt] [-f font] [-o output]\n"
++	die("usage: mew [-beisv] [-l lines] [-p prompt] [-f font] [-o output]\n"
+ 	    "           [-nb color] [-nf color] [-sb color] [-sf color]");
+ }
+ 
+@@ -1018,6 +1032,9 @@ main(int argc, char *argv[])
+ 		else if (!strcmp(argv[i], "-i")) { 
+ 			fstrncmp = strncasecmp;
+ 			fstrstr = cistrstr;
++       } else if (!strcmp(argv[i], "-s")) {
++           fstrncmp = strncasecmp;
++           fstrstr = scstrstr;
+ 		} else if (i + 1 == argc)
+ 			usage();
+ 		else if (!strcmp(argv[i], "-l"))
+-- 
+2.46.1
+
