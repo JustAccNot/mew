@@ -58,7 +58,7 @@ static size_t cursor;
 static struct item *items = NULL;
 static struct item *matches, *matchend;
 static struct item *prev, *curr, *next, *sel;
-static int running = 1;
+static int running = 0;
 
 static struct wl_display *display;
 static struct wl_compositor *compositor;
@@ -176,7 +176,7 @@ loadfonts(void)
 		die("no fonts could be loaded");
 
 	lrpad = drw->font->height;
-	bh = drw->font->height + (2 * scale);
+	bh = drw->font->height + 2;
 	lines = MAX(lines, 0);
 	mh = (lines + 1) * bh;
 	promptw = (prompt && *prompt) ? TEXTW(prompt) - lrpad / 4 : 0;
@@ -284,7 +284,7 @@ drawmenu(void)
 
 	errno = 0;
 	if (!(buf = bufpool_getbuf(&pool, shm, mw, mh)))
-		die("failed to find available buffer");
+		die(errno ? "bufpool_getbuf:" : "no buffer available");
 	drwl_setimage(drw, buf->image);
 
 	drwl_setscheme(drw, colors[SchemeNorm]);
@@ -764,6 +764,9 @@ static void
 layer_surface_handle_configure(void *data, struct zwlr_layer_surface_v1 *layer_surface,
 		uint32_t serial, uint32_t width, uint32_t height)
 {
+	if (mw / scale == width && mh / scale == height)
+		return;
+
 	mw = width * scale;
 	mh = height * scale;
 	inputw = mw / 3; /* input width: ~33% of output width */
@@ -788,6 +791,12 @@ surface_handle_preferred_scale(void *data,
 {
 	scale = factor;
 	loadfonts();
+
+	/* FIXME:
+	 * Use a callback to ensure the 'configure' event
+	 * is sent before the draw, which changes the dimensions
+	 * properly for the update in scale.
+	 */
 	zwlr_layer_surface_v1_set_size(layer_surface, 0, mh / scale);
 	redraw();
 }
@@ -914,8 +923,7 @@ run(void)
 		{ kbd.repeat.timer, POLLIN },
 	}; 
 
-	match();
-
+	running = 1;
 	while (running) { 
 		if (wl_display_prepare_read(display) < 0)
 			if (wl_display_dispatch_pending(display) < 0)
@@ -987,11 +995,11 @@ setup(void)
 		ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
 	zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, -1);
 	zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, true);
-	zwlr_layer_surface_v1_add_listener(layer_surface,
-			&layer_surface_listener, NULL);
+	zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener, NULL);
 
 	wl_surface_commit(surface);
-	wl_display_roundtrip(display);
+	wl_display_roundtrip(display); /* mysteriously required */
+	match();
 }
 
 static void
