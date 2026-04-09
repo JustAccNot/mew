@@ -176,7 +176,7 @@ loadfonts(void)
 		die("no fonts could be loaded");
 
 	lrpad = drw->font->height;
-	bh = drw->font->height + 2;
+	bh = menuheight ? menuheight * scale : drw->font->height + 2;
 	lines = MAX(lines, 0);
 	mh = (lines + 1) * bh;
 	promptw = (prompt && *prompt) ? TEXTW(prompt) - lrpad / 4 : 0;
@@ -1008,7 +1008,7 @@ static void
 usage(void)
 {
 	die("usage: mew [-beiv] [-l lines] [-p prompt] [-f font] [-o output]\n"
-	    "           [-nb color] [-nf color] [-sb color] [-sf color]");
+		"           [-nb color] [-nf color] [-sb color] [-sf color] [-mh height]");
 }
 
 int
@@ -1046,6 +1046,8 @@ main(int argc, char *argv[])
 			parse_color(&colors[SchemeSel][ColBg], argv[++i]);
 		else if (!strcmp(argv[i], "-sf"))
 			parse_color(&colors[SchemeSel][ColFg], argv[++i]);
+		else if (!strcmp(argv[i], "-mh"))
+			menuheight = atoi(argv[++i]);
 		else
 			usage();
 	}
