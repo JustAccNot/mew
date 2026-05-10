@@ -5,6 +5,8 @@ mew is a efficient dynamic menu for Wayland, an effective port of dmenu to Wayla
 In order to build mew, ensure that you have the following dependencies:
 
 * fcft
+* pixman
+* tllist
 * pkg-config
 * wayland
 * wayland-protocols
