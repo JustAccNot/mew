@@ -26,6 +26,12 @@
 
 enum { SchemeNorm, SchemeSel, SchemeOut }; /* color schemes */
 
+struct screen_info {
+	int32_t width;
+	int32_t height;
+	int32_t refresh_rate;
+};
+
 struct item {
 	char *text;
 	struct item *left, *right;
@@ -55,6 +61,7 @@ static int inputw = 0, promptw;
 static int32_t scale = 1;
 static int lrpad; /* sum of left and right padding */
 static size_t cursor;
+static struct screen_info screen_info;
 static struct item *items = NULL;
 static struct item *matches, *matchend;
 static struct item *prev, *curr, *next, *sel;
@@ -76,7 +83,7 @@ static Drwl *drw;
 static BufPool pool;
 static struct wl_callback *frame_callback;
 /* default output supplied by compositor */
-static struct wl_output *output = NULL; 
+static struct wl_output *output = NULL;
 
 #include "config.h"
 
@@ -87,9 +94,7 @@ static int (*submit)(const char*) = puts;
 static void
 noop()
 {
-	/*
-	 * meow :3c
-	 */
+    /* meow :3c */
 }
 
 static void
@@ -171,7 +176,7 @@ loadfonts(void)
 	char fontattrs[12];
 
 	drwl_font_destroy(drw->font);
-	snprintf(fontattrs, sizeof(fontattrs), "dpi=%d", 96 * scale);
+	snprintf(fontattrs, sizeof(fontattrs), "dpi=%.2f", 96. * scale);
 	if (!(drwl_font_create(drw, LENGTH(fonts), fonts, fontattrs)))
 		die("no fonts could be loaded");
 
@@ -218,6 +223,15 @@ calcoffsets(void)
 	for (i = 0, prev = curr; prev && prev->left; prev = prev->left)
 		if ((i += (lines > 0) ? bh : textw_clamp(prev->left->text, n)) > n)
 			break;
+}
+
+static int
+max_textw(void)
+{
+	int len = 0;
+	for (struct item *item = items; item && item->text; item++)
+		len = MAX(TEXTW(item->text), len);
+	return len;
 }
 
 static void
@@ -280,7 +294,7 @@ drawmenu(void)
 	unsigned int curpos;
 	struct item *item;
 	int x = 0, y = 0, w;
-	char *censort;
+    char *censort;
 	DrwBuf *buf;
 
 	errno = 0;
@@ -288,30 +302,36 @@ drawmenu(void)
 		die(errno ? "bufpool_getbuf:" : "no buffer available");
 	drwl_setimage(drw, buf->image);
 
-	drwl_setscheme(drw, colors[SchemeNorm]);
-	drwl_rect(drw, 0, 0, mw, mh, 1, 1);
+    /* draw input box field */
+    if (draw_input_box) {
+	    drwl_setscheme(drw, colors[SchemeNorm]);
+	    drwl_rect(drw, 0, 0, mw, mh, 1, 1);
+    }
 
 	if (prompt && *prompt) {
 		drwl_setscheme(drw, colors[SchemeSel]);
 		x = drwl_text(drw, x, 0, promptw, bh, lrpad / 2, prompt, 0);
 	}
-	/* draw input field */
-	w = (lines > 0 || !matches) ? mw - x : inputw;
-	drwl_setscheme(drw, colors[SchemeNorm]);
-	if (passwd) {
-		censort = calloc(1, sizeof(text));
-		memset(censort, '*', strlen(text));
-		drwl_text(drw, x, 0, w, bh, lrpad / 2, censort, 0);
-		free(censort);
-	} else
-		drwl_text(drw, x, 0, w, bh, lrpad / 2, text, 0);
 
-	curpos = TEXTW(text) - TEXTW(&text[cursor]);
-	if ((curpos += lrpad / 2 - 1) < w) {
-		drwl_setscheme(drw, colors[SchemeNorm]);
-		drwl_rect(drw, x + curpos, (bh - drw->font->height) / 2 + 1,
-			2, drw->font->height - 2, 1, 0);
-	}
+	/* draw input field */
+    if (draw_input) {
+        w = (lines > 0 || !matches) ? mw - x : inputw;
+        drwl_setscheme(drw, colors[SchemeNorm]);
+        if (passwd) {
+            censort = calloc(1, sizeof(text));
+            memset(censort, '*', strlen(text));
+            drwl_text(drw, x, 0, w, bh, lrpad / 2, censort, 0);
+            free(censort);
+        } else
+            drwl_text(drw, x, 0, w, bh, lrpad / 2, text, 0);
+
+        curpos = TEXTW(text) - TEXTW(&text[cursor]);
+        if ((curpos += lrpad / 2 - 1) < w) {
+            drwl_setscheme(drw, colors[SchemeNorm]);
+            drwl_rect(drw, x + curpos, (bh - drw->font->height) / 2 + 1,
+            2, drw->font->height - 2, 1, 0);
+        }
+    }
 
 	if (lines > 0) {
 		/* draw vertical list */
@@ -486,7 +506,7 @@ paste(void)
 	close(fds[0]);
 
 	wl_data_offer_destroy(data_offer);
-	data_offer = NULL;
+    data_offer = NULL;
 }
 
 static void
@@ -516,16 +536,19 @@ keyboard_keypress(enum wl_keyboard_key_state state, xkb_keysym_t sym)
 		case XKB_KEY_p: sym = XKB_KEY_Up; break;
 
 		case XKB_KEY_k: /* delete right */
-			text[cursor] = '\0';
-			match();
+            if (draw_input) {
+			    text[cursor] = '\0';
+			    match();
+            }
 			goto draw;
 		case XKB_KEY_u: /* delete left */
-			insert(NULL, 0 - cursor);
+            if (draw_input)
+			    insert(NULL, 0 - cursor);
 			goto draw;
 		case XKB_KEY_w: /* delete word */
-			while (cursor > 0 && strchr(worddelimiters, text[nextrune(-1)]))
+			while (cursor > 0 && strchr(worddelimiters, text[nextrune(-1)]) && draw_input)
 				insert(NULL, nextrune(-1) - cursor);
-			while (cursor > 0 && !strchr(worddelimiters, text[nextrune(-1)]))
+			while (cursor > 0 && !strchr(worddelimiters, text[nextrune(-1)]) && draw_input)
 				insert(NULL, nextrune(-1) - cursor);
 			goto draw;
 		case XKB_KEY_y: /* paste selection */
@@ -571,18 +594,18 @@ keyboard_keypress(enum wl_keyboard_key_state state, xkb_keysym_t sym)
 	switch (sym) {
 	case XKB_KEY_Delete:
 	case XKB_KEY_KP_Delete:
-		if (text[cursor] == '\0')
+		if (text[cursor] == '\0' || !draw_input)
 			return;
 		cursor = nextrune(+1);
 		/* fallthrough */
 	case XKB_KEY_BackSpace:
-		if (cursor == 0)
+		if (cursor == 0 || !draw_input)
 			return;
 		insert(NULL, nextrune(-1) - cursor);
 		break;
 	case XKB_KEY_End:
 	case XKB_KEY_KP_End:
-		if (text[cursor] != '\0') {
+		if (text[cursor] != '\0' && draw_input) {
 			cursor = strlen(text);
 			break;
 		}
@@ -666,7 +689,7 @@ keyboard_keypress(enum wl_keyboard_key_state state, xkb_keysym_t sym)
 		}
 		break;
 	case XKB_KEY_Tab:
-		if (!sel)
+		if (!sel || !draw_input)
 			return;
 		cursor = strnlen(sel->text, sizeof text - 1);
 		memcpy(text, sel->text, cursor);
@@ -674,7 +697,7 @@ keyboard_keypress(enum wl_keyboard_key_state state, xkb_keysym_t sym)
 		match();
 		break;
 	default:
-		if (xkb_keysym_to_utf8(sym, buf, 8))
+		if (xkb_keysym_to_utf8(sym, buf, 8) && draw_input)
 			insert(buf, strnlen(buf, 8));
 	}
 draw:
@@ -693,7 +716,7 @@ keyboard_handle_keymap(void *data, struct wl_keyboard *wl_keyboard,
 	map_shm = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
 	if (map_shm == MAP_FAILED)
 		die("mmap:");
-	
+
 	kbd.xkb_keymap = xkb_keymap_new_from_string(kbd.xkb_context, map_shm,
 		XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
 	munmap(map_shm, size);
@@ -731,7 +754,7 @@ keyboard_handle_key(void *data, struct wl_keyboard *wl_keyboard,
 		kbd.repeat.sym = sym;
 		spec.it_value.tv_sec = kbd.repeat.delay / 1000;
 		spec.it_value.tv_nsec = (kbd.repeat.delay % 1000) * 1000000l;
-	} 
+	}
 	timerfd_settime(kbd.repeat.timer, 0, &spec, NULL);
 }
 
@@ -786,8 +809,10 @@ static void
 layer_surface_handle_configure(void *data, struct zwlr_layer_surface_v1 *layer_surface,
 		uint32_t serial, uint32_t width, uint32_t height)
 {
+	/* this breaks centered mode
 	if (mw / scale == width && mh / scale == height)
 		return;
+	*/
 
 	mw = width * scale;
 	mh = height * scale;
@@ -808,7 +833,7 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
 	.closed = layer_surface_handle_closed,
 };
 
-static void 
+static void
 surface_handle_preferred_scale(void *data,
 	struct wl_surface *wl_surface, int32_t factor)
 {
@@ -834,7 +859,7 @@ data_device_handle_selection(void *data, struct wl_data_device *data_device,
 		struct wl_data_offer *_data_offer)
 {
 	if (data_offer)
-		wl_data_offer_destroy(data_offer);
+	    wl_data_offer_destroy(data_offer);
 
 	data_offer = _data_offer;
 }
@@ -849,13 +874,22 @@ output_handle_name(void *data, struct wl_output *wl_output, const char *name)
 {
 	if (output_name && !strcmp(name, output_name))
 		output = wl_output;
+	/* this prevents mew from getting the screen width, height
 	else
 		wl_output_destroy(wl_output);
+	*/
+}
+
+static void
+output_handle_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh)
+{
+	screen_info.width = width;
+	screen_info.height = height;
 }
 
 static const struct wl_output_listener output_listener = {
 	.geometry = noop,
-	.mode = noop,
+	.mode = output_handle_mode,
 	.done = noop,
 	.scale = noop,
 	.name = output_handle_name,
@@ -919,11 +953,10 @@ readstdin(void)
 	size_t i, itemsiz = 0, linesiz = 0;
 	ssize_t len;
 
-	if (passwd) {
-		inputw = lines = 0;
-		return;
-	}
-
+    if (passwd) {
+        inputw = lines = 0;
+        return;
+    }
 	/* read each line from stdin and add it to the item list */
 	for (i = 0; (len = getline(&line, &linesiz, stdin)) != -1; i++) {
 		if (i + 1 >= itemsiz) {
@@ -947,13 +980,13 @@ readstdin(void)
 static void
 run(void)
 {
-	struct pollfd pfds[] = { 
+	struct pollfd pfds[] = {
 		{ wl_display_get_fd(display), POLLIN },
 		{ kbd.repeat.timer, POLLIN },
-	}; 
+	};
 
 	running = 1;
-	while (running) { 
+	while (running) {
 		wl_display_flush(display);
 
 		if (poll(pfds, LENGTH(pfds), -1) < 0)
@@ -978,7 +1011,7 @@ setup(void)
 	wl_registry_add_listener(registry, &registry_listener, NULL);
 	wl_display_roundtrip(display);
 	wl_display_roundtrip(display); /* output & seat listeners */
-	
+
 	if (!compositor)
 		die("wl_compositor not available");
 	if (!shm)
@@ -1005,21 +1038,28 @@ setup(void)
 
 	layer_surface = zwlr_layer_shell_v1_get_layer_surface(layer_shell,
 				surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "mew");
-	zwlr_layer_surface_v1_set_size(layer_surface, 0, mh);
-	zwlr_layer_surface_v1_set_anchor(layer_surface, 
-		(top ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP : ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM ) |
-		ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+
+	if (centered) {
+		mw = MIN(MAX(max_textw() + promptw, min_width), screen_info.width);
+		zwlr_layer_surface_v1_set_size(layer_surface, mw, mh);
+		zwlr_layer_surface_v1_set_anchor(layer_surface, 0);
+	} else {
+		zwlr_layer_surface_v1_set_size(layer_surface, 0, mh);
+		zwlr_layer_surface_v1_set_anchor(layer_surface,
+			(top ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP : ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM ) |
+			ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+	}
+
 	zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, -1);
 	zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, 1);
 	zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener, NULL);
-
 	wl_surface_commit(surface);
 }
 
 static void
 usage(void)
 {
-	die("usage: mew [-beivP] [-l lines] [-p prompt] [-f font] [-o output]\n"
+	die("usage: mew [-beivP] [-noi] [-noib] [-l lines] [-p prompt] [-f font] [-o output]\n"
 	    "           [-nb color] [-nf color] [-sb color] [-sf color]");
 }
 
@@ -1033,16 +1073,24 @@ main(int argc, char *argv[])
 		if (!strcmp(argv[i], "-v")) {
 			puts("mew-"VERSION);
 			exit(0);
-		} else if (!strcmp(argv[i], "-b"))
+		}
+        else if (!strcmp(argv[i], "-b"))
 			top = 0;
 		else if (!strcmp(argv[i], "-e"))
 			submit = exec_cmd;
-		else if (!strcmp(argv[i], "-i")) { 
+		else if (!strcmp(argv[i], "-c"))
+			centered = 1;
+	    else if (!strcmp(argv[i], "-noi"))
+			draw_input = 0;
+	    else if (!strcmp(argv[i], "-noib"))
+            draw_input_box = draw_input = 0;
+	    else if (!strcmp(argv[i], "-P"))
+            passwd = 1;
+		else if (!strcmp(argv[i], "-i")) {
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
-		} else if (!strcmp(argv[i], "-P"))
-			passwd = 1;
-		else if (i + 1 == argc)
+		}
+        else if (i + 1 == argc)
 			usage();
 		else if (!strcmp(argv[i], "-l"))
 			lines = atoi(argv[++i]);
@@ -1063,7 +1111,6 @@ main(int argc, char *argv[])
 		else
 			usage();
 	}
-
 	readstdin();
 #ifdef __OpenBSD__
 	if (pledge("stdio rpath", NULL) == -1)
@@ -1072,6 +1119,5 @@ main(int argc, char *argv[])
 	setup();
 	run();
 	cleanup();
-
 	return EXIT_SUCCESS;
 }

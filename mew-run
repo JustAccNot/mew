@@ -1,35 +1,100 @@
-#!/bin/sh
+#!/usr/bin/bash
 
-cachedir="${XDG_CACHE_HOME:-"$HOME/.cache"}"
-cache="$cachedir/mew_run"
+cachedir=${XDG_CACHE_HOME:-"$HOME/.cache"}/dmenu
+dmenu_cache=$cachedir/dmenu_run
+history_file=$cachedir/dmenu_history
+find_arg=(-newer "$dmenu_cache")
+first_run=0
+changed=0
 
-[ -d "$cachedir" ] || mkdir -p "$cachedir"
+if [[ ! -s "$dmenu_cache" ]]; then
+    if [[ ! -d "$cachedir" ]]; then
+        mkdir -p "$cachedir"
+    fi
+    first_run=1
+    find_arg=()
+fi
 
-uptodate() {
-	[ -f "$cache" ] || return 1
-	IFS=:
-	for path in $PATH; do
-		# non-POSIX
-		test "$path" -nt "$cache" && return 1
-	done
-	return 0
-}
+readarray -td ':' paths < <(printf "%s" "${PATH}")
+for path in "${paths[@]}"; do
+    [[ "$path" == "/var/lib/flatpak/exports/bin" ]] && continue
+    if  [[ -d "$path" ]] && [[ "$path" -nt "$dmenu_cache" || $first_run -eq 1 ]]; then
+        find "$path" -maxdepth 1 "${find_arg[@]}" \
+            -executable \( -type f -o -type l \) -printf "%f\n" >> "$dmenu_cache"
+        changed=1
+    fi
+done
 
-bins() {
-	IFS=:
-	for path in $PATH; do
-		for bin in "$path"/*; do
-			[ -x "$bin" ] && echo "${bin##*/}"
-		done
-	done
-}
+if [[ $changed -eq 1 ]]; then
+    sort -u "$dmenu_cache" -o "$dmenu_cache"
 
-path() {
-	if uptodate; then
-		cat "$cache"
-	else
-		bins | sort -u | tee "$cache"
-	fi
-}
+    if [[ $first_run -eq 0 ]]; then
+        invalid_bins_n=0
+        # Prune deleted binaries from cache
+        if [[ -s "$dmenu_cache" ]]; then
+            mapfile -t bins < "$dmenu_cache"
+            valid_bins=()
+            for bin in "${bins[@]}"; do
+                if command -v "$bin" >/dev/null; then
+                    valid_bins+=("$bin")
+                else
+                    ((invalid_bins_n++))
+                fi
+            done
+            printf '%s\n' "${valid_bins[@]}" > "$dmenu_cache"
+        fi
 
-path | mew -e "$@"
+        # Clear history of deleted binaries
+        if [[ -s "$history_file" && invalid_bins_n -gt 0 ]]; then
+            mapfile -t hist_lines < "$history_file"
+            valid_hist=()
+            for line in "${hist_lines[@]}"; do
+                entry=${line#*$'\t'}
+                cmd=${entry%% *}
+                if command -v "$cmd" >/dev/null; then
+                    valid_hist+=("$line")
+                fi
+            done
+
+            if ((${#valid_hist[@]})); then
+                printf '%s\n' "${valid_hist[@]}" > "$history_file"
+            else
+                : > "$history_file"
+            fi
+        fi
+    fi
+fi
+
+awk -v histfile="$history_file" '
+	BEGIN {
+		while( (getline < histfile) > 0 ) {
+			sub("^[0-9]+\t","")
+			print
+			x[$0]=1
+		}
+	} !x[$0]++ ' "$dmenu_cache" \
+    | mew "$@" \
+	| awk -v histfile="$history_file" '
+		BEGIN {
+			FS=OFS="\t"
+			while ( (getline < histfile) > 0 ) {
+				count=$1
+				sub("^[0-9]+\t","")
+				fname=$0
+				history[fname]=count
+			}
+			close(histfile)
+		}
+
+		{
+            history[$0]++
+			print
+		}
+
+		END {
+			if(!NR) exit
+			for (f in history)
+				print history[f],f | "sort -t '\t' -k1rn >" histfile
+		}
+	' \
+	| while read -r cmd; do ${SHELL:-"/bin/sh"} -c "$cmd" & done

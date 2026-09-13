@@ -37,6 +37,9 @@ is a script that lists programs in the user's $PATH and runs the result with
 .B \-b
 appear at the bottom of the screen.
 .TP
+.B \-c
+mew appears centered on the screen.
+.TP
 .B \-e
 execute input or selection with
 .BR /bin/sh ,
@@ -49,6 +52,12 @@ matches menu items case insensitively.
 .B \-P
 do not directly display the keyboard input, but instead replace it with asterisks.
 All data from stdin will be ignored.
+.TP
+.B \-noi
+no keyboard and mouse input
+.TP
+.B \-noib
+do not draw the keyboard and mouse input box
 .TP
 .BI \-l " lines"
 lists item vertically, with the given number of lines.

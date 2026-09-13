@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2023-2025 sewn <sewn@disroot.org>
  * Copyright (c) 2024 notchoc <notchoc@disroot.org>
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,10 +11,10 @@
  * distribute, sublicense, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be
  * included in all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -88,7 +88,7 @@ static Drwl *
 drwl_create(void)
 {
 	Drwl *drwl;
-	
+
 	if (!(drwl = calloc(1, sizeof(Drwl))))
 		return NULL;
 
@@ -113,7 +113,15 @@ static Fnt *
 drwl_font_create(Drwl *drwl, size_t count,
 		const char *names[static count], const char *attributes)
 {
-	Fnt *font = fcft_from_name(count, names, attributes);
+	Fnt *font;
+    struct fcft_font_options *font_options;
+
+    font_options = fcft_font_options_create();
+    font_options->scaling_filter = FCFT_SCALING_FILTER_LANCZOS3;
+    font_options->emoji_presentation = FCFT_EMOJI_PRESENTATION_EMOJI;
+    font = fcft_from_name2(count, names, attributes, font_options);
+    fcft_font_options_destroy(font_options);
+
 	if (drwl)
 		drwl_setfont(drwl, font);
 	return font;
