@@ -1,0 +1,149 @@
+From 0d5edd42c974e6f969fa546cc0998816c0601b2d Mon Sep 17 00:00:00 2001
+From: Leo Martin <contact@leomartin.ch>
+Date: Fri, 14 Nov 2025 00:42:38 +0100
+Subject: [PATCH] Patch to center mew in the middle of the screen
+
+---
+ config.def.h |  2 ++
+ mew.1        |  3 +++
+ mew.c        | 47 ++++++++++++++++++++++++++++++++++++++++++-----
+ 3 files changed, 47 insertions(+), 5 deletions(-)
+
+diff --git a/config.def.h b/config.def.h
+index 3cfa4da..fcb68d0 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -2,6 +2,8 @@
+ /* Default settings; can be overriden by command line. */
+ 
+ static int top              = 1;                       /* -b option; if 0, appear at bottom */
++static int centered         = 0;                       /* -c option; centers mew on screen */
++static int min_width        = 500;                     /* minimum width when centered */
+ static const char *fonts[]  = { "monospace:size=10" }; /* -f option overrides fonts[0] */
+ static const char *prompt   = NULL;                    /* -p option; prompt to the left of input field */
+ static uint32_t colors[][2] = {
+diff --git a/mew.1 b/mew.1
+index 5c9b703..53cf6aa 100644
+--- a/mew.1
++++ b/mew.1
+@@ -37,6 +37,9 @@ is a script that lists programs in the user's $PATH and runs the result with
+ .B \-b
+ appear at the bottom of the screen.
+ .TP
++.B \-c
++mew appears centered on the screen.
++.TP
+ .B \-e
+ execute input or selection with
+ .BR /bin/sh ,
+diff --git a/mew.c b/mew.c
+index 44aaf89..b0a6b71 100644
+--- a/mew.c
++++ b/mew.c
+@@ -26,6 +26,12 @@
+ 
+ enum { SchemeNorm, SchemeSel, SchemeOut }; /* color schemes */
+ 
++struct screen_info {
++	int32_t width;
++	int32_t height;
++	int32_t refresh_rate;
++};
++
+ struct item {
+ 	char *text;
+ 	struct item *left, *right;
+@@ -55,6 +61,7 @@ static int inputw = 0, promptw;
+ static int32_t scale = 1;
+ static int lrpad; /* sum of left and right padding */
+ static size_t cursor;
++static struct screen_info screen_info;
+ static struct item *items = NULL;
+ static struct item *matches, *matchend;
+ static struct item *prev, *curr, *next, *sel;
+@@ -220,6 +227,15 @@ calcoffsets(void)
+ 			break;
+ }
+ 
++static int
++max_textw(void)
++{
++	int len = 0;
++	for (struct item *item = items; item && item->text; item++)
++		len = MAX(TEXTW(item->text), len);
++	return len;
++}
++
+ static void
+ cleanup(void)
+ {
+@@ -778,8 +794,10 @@ static void
+ layer_surface_handle_configure(void *data, struct zwlr_layer_surface_v1 *layer_surface,
+ 		uint32_t serial, uint32_t width, uint32_t height)
+ {
++	/* this breaks centered mode
+ 	if (mw / scale == width && mh / scale == height)
+ 		return;
++	*/
+ 
+ 	mw = width * scale;
+ 	mh = height * scale;
+@@ -838,13 +856,22 @@ output_handle_name(void *data, struct wl_output *wl_output, const char *name)
+ {
+ 	if (output_name && !strcmp(name, output_name))
+ 		output = wl_output;
++	/* this prevents mew from getting the screen width, height
+ 	else
+ 		wl_output_destroy(wl_output);
++	*/
++}
++
++static void
++output_handle_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh)
++{
++	screen_info.width = width;
++	screen_info.height = height;
+ }
+ 
+ static const struct wl_output_listener output_listener = {
+ 	.geometry = noop,
+-	.mode = noop,
++	.mode = output_handle_mode,
+ 	.done = noop,
+ 	.scale = noop,
+ 	.name = output_handle_name,
+@@ -989,10 +1016,18 @@ setup(void)
+ 
+ 	layer_surface = zwlr_layer_shell_v1_get_layer_surface(layer_shell,
+ 				surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "mew");
+-	zwlr_layer_surface_v1_set_size(layer_surface, 0, mh);
+-	zwlr_layer_surface_v1_set_anchor(layer_surface, 
+-		(top ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP : ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM ) |
+-		ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
++
++	if (centered) {
++		mw = MIN(MAX(max_textw() + promptw, min_width), screen_info.width) ;
++		zwlr_layer_surface_v1_set_size(layer_surface, mw, mh);
++		zwlr_layer_surface_v1_set_anchor(layer_surface, 0);
++	} else {
++		zwlr_layer_surface_v1_set_size(layer_surface, 0, mh);
++		zwlr_layer_surface_v1_set_anchor(layer_surface,
++			(top ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP : ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM ) |
++			ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
++	}
++
+ 	zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, -1);
+ 	zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, 1);
+ 	zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener, NULL);
+@@ -1021,6 +1056,8 @@ main(int argc, char *argv[])
+ 			top = 0;
+ 		else if (!strcmp(argv[i], "-e"))
+ 			submit = exec_cmd;
++		else if (!strcmp(argv[i], "-c"))
++			centered = 1;
+ 		else if (!strcmp(argv[i], "-i")) { 
+ 			fstrncmp = strncasecmp;
+ 			fstrstr = cistrstr;
+-- 
+2.51.2
+
