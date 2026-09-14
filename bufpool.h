@@ -92,8 +92,10 @@ bufpool_getbuf(BufPool *pool, struct wl_shm *shm,
 	}
 	if (!buf)
 		return NULL;
-	if (buf->wl_buf && buf->size == size)
+	if (buf->wl_buf && buf->size == size) {
+        buf->busy = 1;
 		return buf;
+    }
 
 #if defined(__linux__) || \
 	((defined(__FreeBSD__) && (__FreeBSD_version >= 1300048)))

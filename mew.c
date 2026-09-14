@@ -300,7 +300,9 @@ drawmenu(void)
 	errno = 0;
 	if (!(buf = bufpool_getbuf(&pool, shm, mw, mh)))
 		die(errno ? "bufpool_getbuf:" : "no buffer available");
-	drwl_setimage(drw, buf->image);
+    /* Prevent stale pixels when drawing a transparent menu. */
+    memset(buf->mmapped, 0, buf->size);
+    drwl_setimage(drw, buf->image);
 
     /* draw input box field */
     if (draw_input_box) {
