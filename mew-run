@@ -3,7 +3,6 @@
 cachedir=${XDG_CACHE_HOME:-"$HOME/.cache"}/dmenu
 dmenu_cache=$cachedir/dmenu_run
 history_file=$cachedir/dmenu_history
-find_arg=(-newer "$dmenu_cache")
 first_run=0
 changed=0
 
@@ -12,14 +11,13 @@ if [[ ! -s "$dmenu_cache" ]]; then
         mkdir -p "$cachedir"
     fi
     first_run=1
-    find_arg=()
 fi
 
 readarray -td ':' paths < <(printf "%s" "${PATH}")
 for path in "${paths[@]}"; do
     [[ "$path" == "/var/lib/flatpak/exports/bin" ]] && continue
     if  [[ -d "$path" ]] && [[ "$path" -nt "$dmenu_cache" || $first_run -eq 1 ]]; then
-        find "$path" -maxdepth 1 "${find_arg[@]}" \
+        find "$path" -maxdepth 1 \
             -executable \( -type f -o -type l \) -printf "%f\n" >> "$dmenu_cache"
         changed=1
     fi
@@ -29,7 +27,6 @@ if [[ $changed -eq 1 ]]; then
     sort -u "$dmenu_cache" -o "$dmenu_cache"
 
     if [[ $first_run -eq 0 ]]; then
-        invalid_bins_n=0
         # Prune deleted binaries from cache
         if [[ -s "$dmenu_cache" ]]; then
             mapfile -t bins < "$dmenu_cache"
@@ -37,31 +34,29 @@ if [[ $changed -eq 1 ]]; then
             for bin in "${bins[@]}"; do
                 if command -v "$bin" >/dev/null; then
                     valid_bins+=("$bin")
-                else
-                    ((invalid_bins_n++))
                 fi
             done
             printf '%s\n' "${valid_bins[@]}" > "$dmenu_cache"
         fi
+    fi
+fi
 
-        # Clear history of deleted binaries
-        if [[ -s "$history_file" && invalid_bins_n -gt 0 ]]; then
-            mapfile -t hist_lines < "$history_file"
-            valid_hist=()
-            for line in "${hist_lines[@]}"; do
-                entry=${line#*$'\t'}
-                cmd=${entry%% *}
-                if command -v "$cmd" >/dev/null; then
-                    valid_hist+=("$line")
-                fi
-            done
-
-            if ((${#valid_hist[@]})); then
-                printf '%s\n' "${valid_hist[@]}" > "$history_file"
-            else
-                : > "$history_file"
-            fi
+# Clear history of unavailable commands
+if [[ -s "$history_file" ]]; then
+    mapfile -t hist_lines < "$history_file"
+    valid_hist=()
+    for line in "${hist_lines[@]}"; do
+        entry=${line#*$'\t'}
+        cmd=${entry%% *}
+        if command -v "$cmd" >/dev/null; then
+            valid_hist+=("$line")
         fi
+    done
+
+    if ((${#valid_hist[@]})); then
+        printf '%s\n' "${valid_hist[@]}" > "$history_file"
+    else
+        : > "$history_file"
     fi
 fi
 
@@ -73,7 +68,7 @@ awk -v histfile="$history_file" '
 			x[$0]=1
 		}
 	} !x[$0]++ ' "$dmenu_cache" \
-    | mew "$@" \
+    | mew -e "$@" \
 	| awk -v histfile="$history_file" '
 		BEGIN {
 			FS=OFS="\t"
@@ -96,5 +91,4 @@ awk -v histfile="$history_file" '
 			for (f in history)
 				print history[f],f | "sort -t '\t' -k1rn >" histfile
 		}
-	' \
-	| while read -r cmd; do ${SHELL:-"/bin/sh"} -c "$cmd" & done
+	'
