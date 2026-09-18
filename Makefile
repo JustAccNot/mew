@@ -52,7 +52,7 @@ wlr-layer-shell-unstable-v1-protocol.c:
 wlr-layer-shell-unstable-v1-protocol.o: xdg-shell-protocol.o
 
 clean:
-	rm -f mew $(OBJ) $(PROTO:.h=.c) $(PROTO)
+	rm -f mew config.h $(OBJ) $(PROTO:.h=.c) $(PROTO)
 
 install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
