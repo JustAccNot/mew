@@ -147,6 +147,15 @@ exec_cmd(const char *text)
 
     puts(text);
     fflush(stdout);
+	fflush(stderr);
+	/* Redirect stdout to /dev/null */
+	int dev_null = open("/dev/null", O_WRONLY);
+	if (dev_null >= 0) {
+		dup2(dev_null, STDOUT_FILENO);
+		dup2(dev_null, STDERR_FILENO);
+		close(dev_null);
+	}
+
 	activation_token = xdg_activation_v1_get_activation_token(activation);
 	xdg_activation_token_v1_set_surface(activation_token, surface);
 	xdg_activation_token_v1_add_listener(activation_token,

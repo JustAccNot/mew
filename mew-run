@@ -51,8 +51,8 @@ if [[ -s "$history_file" ]]; then
 	valid_hist=()
 	for line in "${hist_lines[@]}"; do
 		entry=${line#*$'\t'}
-		cmd=${entry%% *}
-		if command -v "$cmd" >/dev/null; then
+#		cmd=${entry%% *}
+		if command -v "$entry" >/dev/null; then
 			valid_hist+=("$line")
 		fi
 	done
